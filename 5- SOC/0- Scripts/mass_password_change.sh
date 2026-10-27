@@ -15,7 +15,7 @@ else
 fi
 change_password() {
     local username=$1
-    if [[ "$username" == ccdc* || "$username" == ccsi* ]]; then                 # exclude accounts like blackteam here
+    if [[ "$username" == ccdc* || "$username" == ccsi* || "$username" == blackteam* ]]; then                 # exclude accounts like blackteam here
         echo "Skipped: $username"
         return
     fi
