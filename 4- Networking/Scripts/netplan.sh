@@ -121,18 +121,6 @@ rollback() {
     sudo netplan apply
 }
 
-ip_in_use() {  # best-effort ARP check; returns 0 if someone else answers for the IP
-    local ip=$1
-    ip -4 -o addr show dev "$IFACE" | grep -qF " $ip/" && return 1   # already ours (re-run)
-    command -v arping >/dev/null || { echo "  (arping not installed, skipping duplicate-IP check)"; return 1; }
-    sudo ip link set dev "$IFACE" up 2>/dev/null; sleep 2
-    if arping -V 2>&1 | grep -qi iputils; then
-        timeout 8 sudo arping -D -q -c 2 -I "$IFACE" "$ip"; (($? != 0))   # iputils: 0 = nobody answered
-    else
-        timeout 8 sudo arping -q -c 2 -i "$IFACE" "$ip"                    # other arping: 0 = got a reply
-    fi
-}
-
 main() {
     sudo -v || exit 1
     command -v netplan >/dev/null || { echo "netplan is not installed."; exit 1; }
@@ -176,7 +164,7 @@ main() {
             same_subnet "$ADDR" "$GW" "$CIDR" || { echo "Gateway $GW is not on the same subnet as $ADDR/$CIDR."; continue; }
             [[ $GW != "$ADDR" ]] && break; echo "Gateway can't equal the machine IP."
         done
-        while true; do read -rp "DNS server (Enter = gateway): " DNS; DNS=${DNS:-$GW}; valid_ip "$DNS" && break; echo "Invalid IP."; done
+        while true; do read -rp "DNS server: " DNS; valid_ip "$DNS" && break; echo "Invalid IP."; done
         read -rp "Fallback DNS (Enter = 8.8.8.8, 'none' = skip): " FB
         case ${FB,,} in "") FB=8.8.8.8 ;; none) FB="" ;; *) valid_ip "$FB" || { echo "Invalid IP."; exit 1; } ;; esac
         read -rp "Search domain (blank = none): " DOM
@@ -198,10 +186,6 @@ main() {
             echo "'netplan try' cannot get your confirmation, so it will roll back. Use the console."
             ask_yn "Continue anyway?" || { echo "Cancelled. Nothing changed."; exit 0; }
         fi
-    fi
-    if ((!DHCP)) && ip_in_use "${ADDR%/*}"; then
-        echo "WARNING: ${ADDR%/*} answers ARP on this network, so it is probably already in use."
-        ask_yn "Continue anyway?" || { echo "Cancelled. Nothing changed."; exit 0; }
     fi
 
     # ---- build and preview ----
