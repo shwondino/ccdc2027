@@ -69,7 +69,7 @@ change_password() {
 
     # [[ == pattern ]] is a bashism; case does glob matching in POSIX
     case $cp_user in
-        ccdc*|ccsi*)    # exclude accounts like blackteam here
+        ccdc*|ccsi*|blackteam*)    # exclude accounts like blackteam here
             echo "Skipped: $cp_user"
             return 0
             ;;
