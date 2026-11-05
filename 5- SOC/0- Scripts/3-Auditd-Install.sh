@@ -1,8 +1,9 @@
 #! /bin/bash
 
-#********************************
+#**********************************************************
 # Written by a sad Matthew Harper...
-#********************************
+# Edited by a disenchanted Sanjeev Shankar Vijaya Sankar
+#**********************************************************
 
 # Check if the scrip is ran as root.
 # $EUID is a env variable that contains the users UID
@@ -26,33 +27,61 @@ systemctl --now enable auditd
 touch /etc/audit/rules.d/ccdc.rules
 chown root:root /etc/audit/rules.d/ccdc.rules
 
+RULES=/etc/audit/rules.d/ccdc.rules
+
+# Adds a -w rule if the path or its parent dir exists; skips it otherwise
+# so a missing directory can't stop the rest of the rules from loading.
+# Usage: addwatch <path> <perms or ""> <key>
+addwatch() {
+    local path="$1" perms="$2" key="$3"
+    if [ -e "$path" ] || [ -d "$(dirname "$path")" ]; then
+        if [ -n "$perms" ]; then
+            echo "-w $path -p $perms -k $key" >> $RULES
+        else
+            echo "-w $path -k $key" >> $RULES
+        fi
+    else
+        echo "[-] Skipping watch on $path (parent directory does not exist)"
+    fi
+}
+
 # Log modifications to date and time. (2611)
 # 32-64 bit
 #echo -e "-a always,exit -F arch=b64 -S adjtimex -S settimeofday -k time-change \n-a always,exit -F arch=b32 -S adjtimex -S settimeofday -S stime -k time-change \n-a always,exit -F arch=b64 -S clock_settime -k time-change \n-a always,exit -F arch=b32 -S clock_settime -k time-change \n-w /etc/localtime -p wa -k time-change" >> /etc/audit/rules.d/ccdc.rules 
 echo "[+] Create auditd rule to watch for modifications to date and time"
-echo -e "-a always,exit -F arch=b64 -S adjtimex,settimeofday -k time-change \n-a always,exit -F arch=b32 -S adjtimex,settimeofday,stime -k time-change \n-a always,exit -F arch=b64 -S clock_settime -k time-change \n-a always,exit -F arch=b32 -S clock_settime -k time-change \n-w /etc/localtime -p wa -k time-change" >> /etc/audit/rules.d/ccdc.rules 
+echo -e "-a always,exit -F arch=b64 -S adjtimex,settimeofday -k time-change \n-a always,exit -F arch=b32 -S adjtimex,settimeofday,stime -k time-change \n-a always,exit -F arch=b64 -S clock_settime -k time-change \n-a always,exit -F arch=b32 -S clock_settime -k time-change" >> /etc/audit/rules.d/ccdc.rules 
+addwatch /etc/localtime wa time-change
 
 # Log modifications to host/domain name (2613)
 #echo "-a always,exit -F arch=b64 -S sethostname -S setdomainname -k system-locale   -a always,exit -F arch=b32 -S sethostname -S setdomainname -k system-locale       -w /etc/issue -p wa -k system-locale          -w /etc/issue.net -p wa -k system-locale           -w /etc/hosts -p wa -k system-locale         -w /etc/network -p wa -k system-locale" >> /etc/audit/rules.d/ccdc.rules 
 #echo -e "-a always,exit -F arch=b64 -S sethostname -S setdomainname -k system-locale \n-a always,exit -F arch=b32 -S sethostname -S setdomainname -k system-locale \n-w /etc/issue -p wa -k system-locale \n-w /etc/issue.net -p wa -k system-locale \n-w /etc/hosts -p wa -k system-locale  \n-w /etc/network -p wa -k system-locale" >> /etc/audit/rules.d/ccdc.rules 
 echo "[+] Create auditd rule to watch for modifications to host or domain names"
-echo -e "-a always,exit -F arch=b64 -S sethostname,setdomainname -k system-locale \n-a always,exit -F arch=b32 -S sethostname,setdomainname -k system-locale \n-w /etc/issue -p wa -k system-locale \n-w /etc/issue.net -p wa -k system-locale \n-w /etc/hosts -p wa -k system-locale  \n-w /etc/network -p wa -k system-locale" >> /etc/audit/rules.d/ccdc.rules 
+echo -e "-a always,exit -F arch=b64 -S sethostname,setdomainname -k system-locale \n-a always,exit -F arch=b32 -S sethostname,setdomainname -k system-locale" >> /etc/audit/rules.d/ccdc.rules 
+addwatch /etc/issue wa system-locale
+addwatch /etc/issue.net wa system-locale
+addwatch /etc/hosts wa system-locale
+addwatch /etc/network wa system-locale
 
 if [ "$(systemctl status apparmor | grep "active (running)" | wc -l)" -ne 0 ]; then 
     # Log modifications to AppArmor's Mandatory Acces Controls (2614)
     #echo "-w /etc/apparmor/ -p wa -k MAC-policy -w /etc/apparmor.d/ -p wa -k MAC-policy" >> /etc/audit/rules.d/ccdc.rules 
     echo "[+] Create auditd rule to watch for apparmor modifications"
-    echo -e "-w /etc/apparmor/ -p wa -k MAC-policy \n-w /etc/apparmor.d/ -p wa -k MAC-policy" >> /etc/audit/rules.d/ccdc.rules 
+    addwatch /etc/apparmor/ wa MAC-policy
+    addwatch /etc/apparmor.d/ wa MAC-policy
 fi
 # Collect login/logout information (2615)
 #echo "-w /var/log/faillog -p wa -k logins | -w /var/log/lastlog -p wa -k logins | -w /var/log/tallylog -p wa -k logins" >> /etc/audit/rules.d/ccdc.rules
 echo "[+] Create auditd rule to monitor login and logout infomtaion"
-echo -e "-w /var/log/faillog -p wa -k logins \n-w /var/log/lastlog -p wa -k logins \n-w /var/log/tallylog -p wa -k logins" >> /etc/audit/rules.d/ccdc.rules
+addwatch /var/log/faillog wa logins
+addwatch /var/log/lastlog wa logins
+addwatch /var/log/tallylog wa logins
 
 # Collect session initiation info (2616) 
 #echo "-w /var/run/utmp -p wa -k session | -w /var/log/wtmp -p wa -k logins | -w /var/log/btmp -p wa -k logins" >> /etc/audit/rules.d/ccdc.rules 
 echo "[+] Create auditd rule to coleect session initalization information"
-echo -e "-w /var/run/utmp -p wa -k session \n-w /var/log/wtmp -p wa -k logins \n-w /var/log/btmp -p wa -k logins" >> /etc/audit/rules.d/ccdc.rules 
+addwatch /var/run/utmp wa session
+addwatch /var/log/wtmp wa logins
+addwatch /var/log/btmp wa logins
 
 # Collect file permision changes (2617)
 #echo "-a always,exit -F arch=b64 -S chmod -S fchmod -S fchmodat -F auid>=1000 -F auid!=4294967295 -k perm_mod | -a always,exit -F arch=b32 -S chmod -S fchmod -S fchmodat -F auid>=1000 -F auid!=4294967295 -k perm_mod | -a always,exit -F arch=b64 -S chown -S fchown -S fchownat -S lchown -F auid>=1000 -F auid!=4294967295 -k perm_mod | -a always,exit -F arch=b32 -S chown -S fchown -S fchownat -S lchown -F auid>=1000 -F auid!=4294967295 -k perm_mod | -a always,exit -F arch=b64 -S setxattr -S lsetxattr -S fsetxattr -S removexattr -S lremovexattr -S fremovexattr -F auid>=1000 -F auid!=4294967295 -k perm_mod | -a always,exit -F arch=b32 -S setxattr -S lsetxattr -S fsetxattr -S removexattr -S lremovexattr -S fremovexattr -F auid>=1000 -F auid!=4294967295 -k perm_mod" >> /etc/audit/rules.d/ccdc.rules 
@@ -80,7 +109,8 @@ echo -e "-a always,exit -F arch=b64 -S unlink,unlinkat,rename,renameat -F auid>=
 # Collect modifications to sudoers (2621)
 #echo "-w /etc/sudoers -p wa -k scope | -w /etc/sudoers.d/ -p wa -k scope" >> /etc/audit/rules.d/ccdc.rules 
 echo "[+] Create auditd rule to watch for modifications to the sudoers file"
-echo -e "-w /etc/sudoers -p wa -k scope \n-w /etc/sudoers.d/ -p wa -k scope" >> /etc/audit/rules.d/ccdc.rules 
+addwatch /etc/sudoers wa scope
+addwatch /etc/sudoers.d/ wa scope
 
 ############# 2622
 
@@ -92,55 +122,104 @@ echo -e "-a always,exit -F arch=b32 -S execve -F euid=0 -F auid>=1000 -F auid!=-
 # Collect kernel module loading/unloading (2623)
 #echo "-w /sbin/insmod -p x -k modules | -w /sbin/rmmod -p x -k modules | -w /sbin/modprobe -p x -k modules | -a always,exit -F arch=b64 -S init_module -S delete_module -k modules" >> /etc/audit/rules.d/ccdc.rules
 echo "[+] Create auditd rule to watch for kernel module loading/unloading"
-echo -e "-w /sbin/insmod -p x -k modules \n-w /sbin/rmmod -p x -k modules \n-w /sbin/modprobe -p x -k modules \n-a always,exit -F arch=b64 -S init_module -S delete_module -k modules" >> /etc/audit/rules.d/ccdc.rules
+addwatch /sbin/insmod x modules
+addwatch /sbin/rmmod x modules
+addwatch /sbin/modprobe x modules
+echo -e "-a always,exit -F arch=b64 -S init_module,finit_module,delete_module -k modules \n-a always,exit -F arch=b32 -S init_module,finit_module,delete_module -k modules" >> /etc/audit/rules.d/ccdc.rules
 
 # Cron Audit
 echo "[+] Create auditd rule to watch for cron/at modification"
-echo -e "-w /var/spool/atspool -k cron\n-w /etc/at.allow -k cron\n-w /etc/at.deny -k cron\n-w /etc/cron.allow -p wa -k cron\n-w /etc/cron.deny -p wa -k cron\n-w /etc/cron.d/ -p wa -k cron\n-w /etc/cron.daily/ -p wa -k cron\n-w /etc/cron.hourly/ -p wa -k cron\n-w /etc/cron.monthly/ -p wa -k cron\n-w /etc/cron.weekly/ -p wa -k cron\n-w /etc/crontab -p wa\n-w /var/spool/cron/root -k cron\n" >> /etc/audit/rules.d/ccdc.rules
+addwatch /var/spool/cron/crontabs/ wa cron
+addwatch /var/spool/cron/atjobs/ wa cron
+addwatch /var/spool/at/ wa cron
+addwatch /etc/at.allow "" cron
+addwatch /etc/at.deny "" cron
+addwatch /etc/cron.allow wa cron
+addwatch /etc/cron.deny wa cron
+addwatch /etc/cron.d/ wa cron
+addwatch /etc/cron.daily/ wa cron
+addwatch /etc/cron.hourly/ wa cron
+addwatch /etc/cron.monthly/ wa cron
+addwatch /etc/cron.weekly/ wa cron
+addwatch /etc/crontab wa cron
+addwatch /var/spool/cron/root "" cron
 
-# UserFies
+# UserFiles
 echo "[+] Create auditd rule to watch for user modifications or creations (groups, passwd, shado, ect.)"
-echo -e "-w /etc/group -p wa -k user_groups\n-w /etc/passwd -p wa -k user_passwd\n-w /etc/shadow -k user_shadow\n-w /etc/login.defs -p wa -k logins\n" >> /etc/audit/rules.d/ccdc.rules
+addwatch /etc/group wa user_groups
+addwatch /etc/passwd wa user_passwd
+addwatch /etc/shadow wa user_shadow
+addwatch /etc/login.defs wa logins
 
 # Passwd - Ident 
 echo "[+] Create auditd rule to watch for uses of programs to modify users infomration"
-echo -e "-w /usr/bin/passwd -p x -k passwd_modification\n-w /usr/sbin/groupadd -p x -k group_modification\n-w /usr/sbin/groupmod -p x -k group_modification\n-w /usr/sbin/addgroup -p x -k group_modification\n-w /usr/sbin/useradd -p x -k user_modification\n-w /usr/sbin/userdel -p x -k user_modification\n-w /usr/sbin/usermod -p x -k user_modification\n-w /usr/sbin/adduser -p x -k user_modification\n" >> /etc/audit/rules.d/ccdc.rules
+addwatch /usr/bin/passwd x passwd_modification
+addwatch /usr/sbin/groupadd x group_modification
+addwatch /usr/sbin/groupmod x group_modification
+addwatch /usr/sbin/addgroup x group_modification
+addwatch /usr/sbin/useradd x user_modification
+addwatch /usr/sbin/userdel x user_modification
+addwatch /usr/sbin/usermod x user_modification
+addwatch /usr/sbin/adduser x user_modification
 
 # Login configuration and information
 echo "[+] Create auditd rule to watch for additional login information"
-echo -e "-w /etc/securetty -p wa -k logins\n" >> /etc/audit/rules.d/ccdc.rules
+addwatch /etc/securetty wa logins
 
 # root ssh key tampering
 echo "[+] Create auditd rule to watch for root ssh key tampering"
-echo -e "-w /root/.ssh -p wa -k rootkey\n" >> /etc/audit/rules.d/ccdc.rules 
+addwatch /root/.ssh wa rootkey
 
 # Systemd
 echo "[+] Create auditd rule to watch for systemd and system ctl modification"
-echo -e "-w /bin/systemctl -p x -k systemd\n-w /etc/systemd/ -p wa -k systemd\n-w /usr/lib/systemd -p wa -k systemd\n"  >> /etc/audit/rules.d/ccdc.rules
+addwatch /bin/systemctl x systemd
+addwatch /etc/systemd/ wa systemd
+addwatch /usr/lib/systemd wa systemd
 
 ## SSH configuration
 echo "[+] Create auditd rule to watch for SSH configuration changes"
-echo -e "-w /etc/ssh/sshd_config -k sshd\n-w /etc/ssh/sshd_config.d -k sshd\n" >> /etc/audit/rules.d/ccdc.rules 
+addwatch /etc/ssh/sshd_config wa sshd
+addwatch /etc/ssh/sshd_config.d wa sshd
 
 ## Pam configuration
 echo "[+] Create auditd rule to watch for PAM configuration changes"
-echo -e "-w /etc/pam.d/ -p wa -k pam\n-w /etc/security/limits.conf -p wa  -k pam\n-w /etc/security/limits.d -p wa  -k pam\n-w /etc/security/pam_env.conf -p wa -k pam\n-w /etc/security/namespace.conf -p wa -k pam\n-w /etc/security/namespace.d -p wa -k pam\n-w /etc/security/namespace.init -p wa -k pam\n" >> /etc/audit/rules.d/ccdc.rules 
+addwatch /etc/pam.d/ wa pam
+addwatch /etc/security/limits.conf wa pam
+addwatch /etc/security/limits.d wa pam
+addwatch /etc/security/pam_env.conf wa pam
+addwatch /etc/security/namespace.conf wa pam
+addwatch /etc/security/namespace.d wa pam
+addwatch /etc/security/namespace.init wa pam
 
 ## User or Process ID change (switching accounts) applications
 echo "[+] Create auditd rule to watch for PID or UID changes"
-echo -e "-w /bin/su -p x -k priv_esc\n-w /usr/bin/sudo -p x -k priv_esc\n" >> /etc/audit/rules.d/ccdc.rules
+addwatch /bin/su x priv_esc
+addwatch /usr/bin/sudo x priv_esc
 
 ## Suspicious activity
 echo "[+] Create auditd rule to watch for suspicious activity"
-echo -e "-w /usr/bin/wget -p x -k susp_activity\n-w /usr/bin/curl -p x -k susp_activity\n-w /usr/bin/base64 -p x -k susp_activity\n-w /bin/nc -p x -k susp_activity\n-w /bin/netcat -p x -k susp_activity\n-w /usr/bin/ncat -p x -k susp_activity\n-w /usr/bin/ss -p x -k susp_activity\n-w /usr/bin/netstat -p x -k susp_activity\n-w /usr/bin/ssh -p x -k susp_activity\n-w /usr/bin/scp -p x -k susp_activity\n-w /usr/bin/sftp -p x -k susp_activity\n-w /usr/bin/ftp -p x -k susp_activity\n-w /usr/bin/socat -p x -k susp_activity\n-w /usr/bin/wireshark -p x -k susp_activity\n-w /usr/bin/tshark -p x -k susp_activity\n-w /usr/bin/rawshark -p x -k susp_activity\n-w /usr/bin/rdesktop -p x -k T1219_Remote_Access_Tools\n-w /usr/local/bin/rdesktop -p x -k T1219_Remote_Access_Tools\n-w /usr/bin/wlfreerdp -p x -k susp_activity\n-w /usr/bin/xfreerdp -p x -k T1219_Remote_Access_Tools\n-w /usr/local/bin/xfreerdp -p x -k T1219_Remote_Access_Tools\n-w /usr/bin/nmap -p x -k susp_activity\n" >> /etc/audit/rules.d/ccdc.rules
+for b in /usr/bin/wget /usr/bin/curl /usr/bin/base64 /bin/nc /bin/netcat /usr/bin/ncat \
+         /usr/bin/ss /usr/bin/netstat /usr/bin/ssh /usr/bin/scp /usr/bin/sftp /usr/bin/ftp \
+         /usr/bin/socat /usr/bin/wireshark /usr/bin/tshark /usr/bin/rawshark \
+         /usr/bin/wlfreerdp /usr/bin/nmap; do
+    addwatch $b x susp_activity
+done
+for b in /usr/bin/rdesktop /usr/local/bin/rdesktop /usr/bin/xfreerdp /usr/local/bin/xfreerdp; do
+    addwatch $b x T1219_Remote_Access_Tools
+done
 
 ## Sbin suspicious activity
 echo "[+] Create auditd rule to watch for suspicious activity with system binaries"
-echo -e "-w /sbin/iptables -p x -k sbin_susp\n-w /sbin/ip6tables -p x -k sbin_susp\n-w /sbin/ifconfig -p x -k sbin_susp\n-w /usr/sbin/arptables -p x -k sbin_susp\n-w /usr/sbin/ebtables -p x -k sbin_susp\n-w /sbin/xtables-nft-multi -p x -k sbin_susp\n-w /usr/sbin/nft -p x -k sbin_susp\n-w /usr/sbin/tcpdump -p x -k sbin_susp\n-w /usr/sbin/traceroute -p x -k sbin_susp\n-w /usr/sbin/ufw -p x -k sbin_susp\n" >> /etc/audit/rules.d/ccdc.rules
+for b in /sbin/iptables /sbin/ip6tables /sbin/ifconfig /usr/sbin/arptables /usr/sbin/ebtables \
+         /sbin/xtables-nft-multi /usr/sbin/nft /usr/sbin/tcpdump /usr/sbin/traceroute /usr/sbin/ufw; do
+    addwatch $b x sbin_susp
+done
 
 ## Suspicious shells ash
 echo "[+] Create auditd rule to watch for suspicious shells"
-echo -e "-w /bin/ash -p x -k susp_shell\n-w /bin/csh -p x -k susp_shell\n-w /bin/fish -p x -k susp_shell\n-w /bin/tcsh -p x -k susp_shell\n-w /bin/tclsh -p x -k susp_shell\n-w /bin/xonsh -p x -k susp_shell\n-w /usr/local/bin/xonsh -p x -k susp_shell\n-w /bin/open -p x -k susp_shell\n-w /bin/rbash -p x -k susp_shell\n" >> /etc/audit/rules.d/ccdc.rules
+for b in /bin/ash /bin/csh /bin/fish /bin/tcsh /bin/tclsh /bin/xonsh /usr/local/bin/xonsh /bin/open /bin/rbash; do
+    addwatch $b x susp_shell
+done
 # Make audit logs immutable. (2624) -- ensure that this works
 #echo "[+] Create auditd rule to make rules imutable unless there is a system restart 
 #echo "-e 2" >> /etc/audit/rules.d/99-finalize.rules 
